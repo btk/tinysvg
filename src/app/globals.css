@@ -18,11 +18,41 @@
   }
 
   body {
-    @apply h-full bg-white text-gray-900 transition-colors;
+    @apply h-full bg-gray-50 text-gray-900 transition-colors;
   }
 
   .dark body {
     @apply bg-gray-900 text-white;
+  }
+}
+
+/* Custom component styles */
+@layer components {
+  .icons8-button {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 
+           flex items-center gap-2 text-sm;
+  }
+
+  .icons8-button-primary {
+    @apply icons8-button bg-blue-600 text-white hover:bg-blue-700
+           dark:bg-blue-500 dark:hover:bg-blue-600;
+  }
+
+  .icons8-button-secondary {
+    @apply icons8-button bg-gray-100 text-gray-700 hover:bg-gray-200
+           dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700;
+  }
+
+  .icons8-card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100
+           dark:bg-gray-800 dark:border-gray-700;
+  }
+
+  .icons8-input {
+    @apply w-full px-4 py-2 rounded-lg border border-gray-200 
+           focus:ring-2 focus:ring-blue-500 focus:border-transparent
+           dark:bg-gray-800 dark:border-gray-700 dark:text-white
+           transition-all duration-200;
   }
 }
 
@@ -37,12 +67,11 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
+  @apply bg-gray-300 rounded-full dark:bg-gray-600;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #666;
+  @apply bg-gray-400 dark:bg-gray-500;
 }
 
 /* Dark mode scrollbar */

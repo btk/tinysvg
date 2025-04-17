@@ -1,8 +1,8 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'SVG Simplifier',
-  description: 'A tool to simplify and optimize SVG files',
+  title: 'TinySVG',
+  description: 'A powerful tool to optimize and simplify SVG files',
 };
 
 export default function RootLayout({ children }) {
