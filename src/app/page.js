@@ -11,6 +11,7 @@ export default function Home() {
   const [svgContent, setSvgContent] = useState('');
   const [simplifiedSvg, setSimplifiedSvg] = useState('');
   const [sizeInfo, setSizeInfo] = useState(null);
+  const [fileName, setFileName] = useState('');
   const [options, setOptions] = useState({
     // Basic options
     removeMetadata: true,
@@ -30,29 +31,53 @@ export default function Home() {
     smoothCurves: true,
     
     // Path simplification options
-    simplifyPaths: true,
+    simplifyPaths: false,
     simplifyTolerance: 1,
   });
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(true);
 
   const processSvgContent = useCallback((content) => {
     if (!content) return;
     const result = processSvg(content, options);
     setSimplifiedSvg(result.data);
     setSizeInfo(result.size);
+    console.log('Final SVG content:', result.data);
   }, [options]);
 
   const onDrop = useCallback((acceptedFiles) => {
+    console.log('File dropped:', acceptedFiles);
     const file = acceptedFiles[0];
+    console.log('Processing file:', file.name, 'Size:', file.size, 'bytes');
+    
+    // Store the file name without extension
+    setFileName(file.name.replace(/\.svg$/, ''));
+    
     const reader = new FileReader();
     reader.onload = (e) => {
       const content = e.target.result;
+      console.log('File content loaded, length:', content.length, 'bytes');
       setSvgContent(content);
-      processSvgContent(content);
+      
+      console.log('Processing SVG with options:', options);
+      const result = processSvg(content, options);
+      console.log('Processing result:', {
+        originalSize: result.size.original,
+        optimizedSize: result.size.optimized,
+        reduction: result.size.reduction + '%',
+        dataLength: result.data.length
+      });
+      
+      setSimplifiedSvg(result.data);
+      setSizeInfo(result.size);
     };
+    
+    reader.onerror = (error) => {
+      console.error('Error reading file:', error);
+    };
+    
     reader.readAsText(file);
-  }, [processSvgContent]);
+  }, [options]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -85,25 +110,33 @@ export default function Home() {
 
   const updateSimplifyTolerance = useCallback((value) => {
     const tolerance = Math.max(0.1, Math.min(10, parseFloat(value) || 1));
-    setOptions(prev => ({
-      ...prev,
-      simplifyTolerance: tolerance
-    }));
-    if (svgContent) {
-      processSvgContent(svgContent);
-    }
-  }, [svgContent, processSvgContent]);
+    setOptions(prev => {
+      const newOptions = {
+        ...prev,
+        simplifyTolerance: tolerance
+      };
+      // Process SVG immediately with new options
+      if (svgContent) {
+        const result = processSvg(svgContent, newOptions);
+        setSimplifiedSvg(result.data);
+        setSizeInfo(result.size);
+      }
+      return newOptions;
+    });
+  }, [svgContent]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(simplifiedSvg);
   };
 
   const downloadSvg = () => {
-    const blob = new Blob([simplifiedSvg], { type: 'image/svg+xml' });
+    const xmlDeclaration = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    const svgWithDeclaration = xmlDeclaration + simplifiedSvg;
+    const blob = new Blob([svgWithDeclaration], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'simplified.svg';
+    a.download = `${fileName}-tinysvg-simplified.svg`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -241,7 +274,12 @@ export default function Home() {
                     </div>
 
                     <div>
-                      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Path Simplification</h3>
+                      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4 flex items-center gap-2">
+                        Path Simplification
+                        <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded-full">
+                          Experimental
+                        </span>
+                      </h3>
                       <div className="flex flex-col space-y-2">
                         <label className="flex items-center space-x-3 cursor-pointer mb-4">
                           <input
@@ -279,6 +317,33 @@ export default function Home() {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Right column - Preview and Simplified SVG */}
+          <div className="lg:w-96 lg:sticky lg:top-8 lg:self-start lg:h-[calc(100vh-4rem)] space-y-8">
+            {/* Preview */}
+            {svgContent && (
+              <div className="icons8-card p-6">
+                <h2 className="text-xl font-semibold mb-4">Preview</h2>
+                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+                  <div 
+                    className="w-full h-[300px] flex items-center justify-center"
+                  >
+                    <div
+                      className="w-full h-full"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      dangerouslySetInnerHTML={{ 
+                        __html: simplifiedSvg.replace(/<svg/, '<svg style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain;"') 
+                      }} 
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Results - Code */}
             {svgContent && (
@@ -340,20 +405,43 @@ export default function Home() {
               </div>
             )}
           </div>
-
-          {/* Right column - Preview */}
-          {svgContent && (
-            <div className="lg:w-96 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
-              <div className="icons8-card p-6 h-full flex flex-col">
-                <h2 className="text-xl font-semibold mb-4">Preview</h2>
-                <div className="flex-1 bg-gray-50 dark:bg-gray-900 rounded-lg p-4 flex items-center justify-center">
-                  <div className="max-w-full max-h-full" dangerouslySetInnerHTML={{ __html: simplifiedSvg }} />
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+      
+      {/* Footer */}
+      <footer className="mt-20 border-t border-gray-200 dark:border-gray-800">
+        <div className="max-w-7xl mx-auto py-8 px-4 md:px-8">
+          <div className="text-center space-x-4">
+            <a 
+              href="https://t8l.dev" 
+              className="text-gray-400 hover:text-white dark:text-gray-400 dark:hover:text-white transition-colors duration-300 text-sm inline-block"
+            >
+              © {new Date().getFullYear()} t8l.dev
+            </a>
+            <span className="text-gray-600">•</span>
+            <a 
+              href="https://t8l.dev/terms-of-use" 
+              className="text-gray-400 hover:text-white dark:text-gray-400 dark:hover:text-white transition-colors duration-300 text-sm inline-block"
+            >
+              Terms of Use
+            </a>
+            <span className="text-gray-600">•</span>
+            <a 
+              href="https://t8l.dev/privacy-policy" 
+              className="text-gray-400 hover:text-white dark:text-gray-400 dark:hover:text-white transition-colors duration-300 text-sm inline-block"
+            >
+              Privacy Policy
+            </a>
+            <span className="text-gray-600">•</span>
+            <a 
+              href="https://t8l.dev/licensing" 
+              className="text-gray-400 hover:text-white dark:text-gray-400 dark:hover:text-white transition-colors duration-300 text-sm inline-block"
+            >
+              Licensing
+            </a>
+          </div>
+        </div>
+      </footer>
     </main>
   );
 } 

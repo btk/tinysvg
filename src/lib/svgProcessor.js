@@ -19,6 +19,10 @@ const parsePathData = (d) => {
 // Helper function to convert path data back to string
 const pathDataToString = (commands) => {
   return commands.map(({ command, params }) => {
+    if (!params || !Array.isArray(params)) {
+      console.warn('Invalid params for command:', command, params);
+      return command;
+    }
     return command + params.join(' ');
   }).join(' ');
 };
@@ -30,34 +34,25 @@ const distance = (x1, y1, x2, y2) => {
 
 // Douglas-Peucker path simplification
 const simplifyPath = (points, tolerance) => {
-  if (points.length <= 2) return points;
+  console.log('Simplifying path with tolerance:', tolerance);
+  const commands = parsePathData(pathDataToString(points));
+  console.log('Number of points before simplification:', commands.length);
   
   const findPerpendicularDistance = (point, lineStart, lineEnd) => {
-    let dx = lineEnd.x - lineStart.x;
-    let dy = lineEnd.y - lineStart.y;
+    const lineLength = distance(lineStart.x, lineStart.y, lineEnd.x, lineEnd.y);
+    if (lineLength === 0) return distance(point.x, point.y, lineStart.x, lineStart.y);
     
-    // Normalize
-    const mag = Math.sqrt(dx * dx + dy * dy);
-    if (mag > 0) {
-      dx /= mag;
-      dy /= mag;
-    }
+    const t = ((point.x - lineStart.x) * (lineEnd.x - lineStart.x) + 
+               (point.y - lineStart.y) * (lineEnd.y - lineStart.y)) / 
+              (lineLength * lineLength);
     
-    const pvx = point.x - lineStart.x;
-    const pvy = point.y - lineStart.y;
+    if (t < 0) return distance(point.x, point.y, lineStart.x, lineStart.y);
+    if (t > 1) return distance(point.x, point.y, lineEnd.x, lineEnd.y);
     
-    // Get dot product (project pv onto normalized direction)
-    const pvdot = dx * pvx + dy * pvy;
+    const projectionX = lineStart.x + t * (lineEnd.x - lineStart.x);
+    const projectionY = lineStart.y + t * (lineEnd.y - lineStart.y);
     
-    // Scale line direction vector
-    const dsx = pvdot * dx;
-    const dsy = pvdot * dy;
-    
-    // Subtract this from pv
-    const ax = pvx - dsx;
-    const ay = pvy - dsy;
-    
-    return Math.sqrt(ax * ax + ay * ay);
+    return distance(point.x, point.y, projectionX, projectionY);
   };
   
   const simplify = (points, tolerance) => {
@@ -88,7 +83,17 @@ const simplifyPath = (points, tolerance) => {
     return [points[0], points[points.length - 1]];
   };
   
-  return simplify(points, tolerance);
+  const simplifiedPoints = simplify(points, tolerance);
+  console.log('Number of points after simplification:', simplifiedPoints.length);
+  
+  const simplifiedCommands = simplifiedPoints.map((point, i) => {
+    if (i === 0) return { command: 'M', params: [point.x, point.y] };
+    return { command: 'L', params: [point.x, point.y] };
+  });
+  
+  const simplifiedPathData = `d="${pathDataToString(simplifiedCommands)}"`;
+  console.log('Simplified path data:', simplifiedPathData);
+  return simplifiedPathData;
 };
 
 // Custom optimizations that run before SVGO
@@ -140,34 +145,54 @@ const preProcessSvg = (svgContent, options) => {
   // Simplify paths with Douglas-Peucker algorithm
   if (options.simplifyPaths) {
     const tolerance = options.simplifyTolerance || 1;
+    console.log('Simplifying paths with tolerance:', tolerance);
+    
     svg = svg.replace(/d="([^"]+)"/g, (match, pathData) => {
+      console.log('Original path data:', pathData);
       const commands = parsePathData(pathData);
+      console.log('Parsed commands:', commands);
+      
       const points = [];
       let currentX = 0;
       let currentY = 0;
       
+      // Convert all commands to absolute coordinates
       commands.forEach(({ command, params }) => {
         switch (command) {
           case 'M':
-          case 'm':
             currentX = params[0];
             currentY = params[1];
             points.push({ x: currentX, y: currentY });
             break;
+          case 'm':
+            currentX += params[0];
+            currentY += params[1];
+            points.push({ x: currentX, y: currentY });
+            break;
           case 'L':
+            currentX = params[0];
+            currentY = params[1];
+            points.push({ x: currentX, y: currentY });
+            break;
           case 'l':
-            currentX = command === 'L' ? params[0] : currentX + params[0];
-            currentY = command === 'L' ? params[1] : currentY + params[1];
+            currentX += params[0];
+            currentY += params[1];
             points.push({ x: currentX, y: currentY });
             break;
           case 'H':
+            currentX = params[0];
+            points.push({ x: currentX, y: currentY });
+            break;
           case 'h':
-            currentX = command === 'H' ? params[0] : currentX + params[0];
+            currentX += params[0];
             points.push({ x: currentX, y: currentY });
             break;
           case 'V':
+            currentY = params[0];
+            points.push({ x: currentX, y: currentY });
+            break;
           case 'v':
-            currentY = command === 'V' ? params[0] : currentY + params[0];
+            currentY += params[0];
             points.push({ x: currentX, y: currentY });
             break;
           case 'Z':
@@ -177,13 +202,16 @@ const preProcessSvg = (svgContent, options) => {
         }
       });
       
-      const simplifiedPoints = simplifyPath(points, tolerance);
-      const simplifiedCommands = simplifiedPoints.map((point, i) => {
-        if (i === 0) return { command: 'M', params: [point.x, point.y] };
-        return { command: 'L', params: [point.x, point.y] };
-      });
+      console.log('Extracted points:', points);
       
-      return `d="${pathDataToString(simplifiedCommands)}"`;
+      if (points.length > 2) {
+        const simplifiedPathData = simplifyPath(points, tolerance);
+        console.log('Simplified path data:', simplifiedPathData);
+        return simplifiedPathData;
+      }
+      
+      console.log('Path too short to simplify, returning original');
+      return match;
     });
   }
 
@@ -235,34 +263,29 @@ export const processSvg = (svgContent, options) => {
     multipass: true,
     floatPrecision: options.coordinatePrecision || 2,
     plugins: [
-      // Remove metadata
-      { name: 'removeTitle' },
-      { name: 'removeDesc' },
-      { name: 'removeComments' },
-      { name: 'removeMetadata' },
-      { name: 'removeEditorsNSData' },
-
-      // Cleanup
-      { name: 'cleanupAttrs' },
-      { name: 'cleanupEnableBackground' },
-      { name: 'cleanupIDs' },
-      { name: 'cleanupNumericValues' },
-      { name: 'cleanupListOfValues' },
-      { name: 'convertColors' },
-      { name: 'removeUnknownsAndDefaults' },
-      { name: 'removeNonInheritableGroupAttrs' },
-      { name: 'removeUselessStrokeAndFill' },
-      { name: 'removeViewBox' },
-      { name: 'removeDimensions' },
-      { name: 'removeEmptyAttrs' },
-      { name: 'removeEmptyContainers' },
-      { name: 'removeEmptyText' },
-      { name: 'removeHiddenElems' },
-      { name: 'removeEmptyDefs' },
-      { name: 'removeUnusedNS' },
-      { name: 'removeDoctype' },
-      { name: 'removeXMLProcInst' },
-      { name: 'removeXMLNS' },
+      // Basic cleanup
+      'removeTitle',
+      'removeDesc',
+      'removeComments',
+      'removeMetadata',
+      'removeEditorsNSData',
+      'removeEmptyAttrs',
+      'removeEmptyContainers',
+      'removeEmptyText',
+      'removeHiddenElems',
+      'removeViewBox',
+      'removeDimensions',
+      'removeDoctype',
+      'removeXMLProcInst',
+      'removeXMLNS',
+      'removeUnknownsAndDefaults',
+      'removeNonInheritableGroupAttrs',
+      'removeUselessStrokeAndFill',
+      'removeUnusedNS',
+      'removeRasterImages',
+      'removeScriptElement',
+      'removeStyleElement',
+      'removeOffCanvasPaths',
 
       // Path optimizations
       { 
@@ -289,55 +312,12 @@ export const processSvg = (svgContent, options) => {
       },
 
       // Shape optimizations
-      { name: 'convertShapeToPath' },
-      { name: 'convertEllipseToCircle' },
-      { name: 'convertRectToPath' },
-      { name: 'convertLineToPath' },
+      'convertShapeToPath',
+      'convertEllipseToCircle',
 
       // Group optimizations
-      { name: 'collapseGroups' },
-      { name: 'mergePaths' },
-      { name: 'removeDuplicateElements' },
-      { name: 'removeUnusedDefs' },
-      { name: 'removeUselessDefs' },
-
-      // Style optimizations
-      { name: 'inlineStyles' },
-      { name: 'minifyStyles' },
-      { name: 'removeStyleElement' },
-      { name: 'removeScriptElement' },
-      { name: 'removeRasterImages' },
-      { name: 'removeOffCanvasPaths' },
-      { name: 'removeElementsByAttr' },
-      { name: 'removeAttrs' },
-      { name: 'removeAttributesBySelector' },
-      { name: 'removeClasses' },
-      { name: 'removeDataAttrs' },
-      { name: 'removeDataNamespacedAttrs' },
-      { name: 'removeDefaultPx' },
-      { name: 'removeDimensions' },
-      { name: 'removeDoctype' },
-      { name: 'removeEditorsNSData' },
-      { name: 'removeEmptyAttrs' },
-      { name: 'removeEmptyContainers' },
-      { name: 'removeEmptyDefs' },
-      { name: 'removeEmptyText' },
-      { name: 'removeHiddenElems' },
-      { name: 'removeMetadata' },
-      { name: 'removeNonInheritableGroupAttrs' },
-      { name: 'removeOffCanvasPaths' },
-      { name: 'removeRasterImages' },
-      { name: 'removeScriptElement' },
-      { name: 'removeStyleElement' },
-      { name: 'removeTitle' },
-      { name: 'removeUnknownsAndDefaults' },
-      { name: 'removeUnusedDefs' },
-      { name: 'removeUnusedNS' },
-      { name: 'removeUselessDefs' },
-      { name: 'removeUselessStrokeAndFill' },
-      { name: 'removeViewBox' },
-      { name: 'removeXMLNS' },
-      { name: 'removeXMLProcInst' },
+      'collapseGroups',
+      'mergePaths',
     ],
   };
 
@@ -346,6 +326,16 @@ export const processSvg = (svgContent, options) => {
     
     // Additional post-processing
     let finalSvg = result.data;
+    
+    // Ensure SVG has proper namespace and viewBox
+    if (!finalSvg.includes('xmlns="http://www.w3.org/2000/svg"')) {
+      finalSvg = finalSvg.replace(/<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+    
+    // Add viewBox if missing
+    if (!finalSvg.includes('viewBox=') && !finalSvg.includes('width=') && !finalSvg.includes('height=')) {
+      finalSvg = finalSvg.replace(/<svg/, '<svg viewBox="0 0 100 100"');
+    }
     
     // Remove any remaining whitespace
     finalSvg = finalSvg.replace(/\s+/g, ' ').trim();
